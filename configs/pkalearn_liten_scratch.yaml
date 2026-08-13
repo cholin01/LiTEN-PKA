@@ -1,0 +1,63 @@
+project:
+  name: liten_pka
+  seed: 0
+  device: cuda
+
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  conformer_dir: data/conformers
+  train_file: data/processed/train.csv
+  val_file: data/processed/val.csv
+  split_column: split
+  id_column: mol_id
+  smiles_column: smiles
+  target_column: pka
+  center_column: center_atom_idx
+  task_column: task
+
+conformers:
+  n_conformers: 5
+  random_seed: 2026
+  max_embed_attempts: 1000
+  prune_rms_thresh: -1.0
+
+liten:
+  root: vendor/LiTEN
+  checkpoint: ""
+  freeze_backbone: false
+  num_heads: 8
+  num_layers: 6
+  hidden_channels: 256
+  num_rbf: 32
+  cutoff: 5.0
+  max_neighbors: 32
+  max_z: 100
+  mean: 0.0
+  std: 1.0
+
+model:
+  task_embedding_dim: 16
+  conformer_pool: node_mean
+  dropout: 0.1
+  atom_feature_set: none
+  atom_feature_include_center: false
+  use_site_readout: true
+
+augmentation:
+  atom_mask_ratio: 0.0
+  bond_drop_ratio: 0.0
+
+train:
+  seeds: [0, 1, 2]
+  batch_size: 32
+  epochs: 100
+  lr: 0.0001
+  train_conformer_mode: random_one
+  weight_decay: 0.00001
+  patience: 20
+  keep_top_k: 5
+  save_last: true
+  num_workers: 0
+  checkpoint_dir: models
+  report_dir: reports

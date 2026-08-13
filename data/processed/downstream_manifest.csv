@@ -1,0 +1,13 @@
+dataset,rows,file
+OfficialTest,2187,test_set.csv
+Novartis,276,test_set_Novartis.csv
+SAMPL8,25,Sampl8_v2.csv
+euroSAMPL,35,euroSAMPL_compounds2.csv
+NoC,2096,test_set_noC.csv
+NoNovartis,2363,test_set_noNovartis.csv
+Random1,2539,test_set_random_1.csv
+Random2,2537,test_set_random_2.csv
+Random3,2539,test_set_random_3.csv
+Random1NoC,2454,test_set_random_1_noC.csv
+Random2NoC,2466,test_set_random_2_noC.csv
+Random3NoC,2451,test_set_random_3_noC.csv
