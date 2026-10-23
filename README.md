@@ -4,8 +4,8 @@
 
 | Workflow | Script | Purpose |
 | --- | --- | --- |
-| 🔁 Reproduce training | `scripts/reproduce_train.py` | Reproduce the entry2/no-carbon training protocol using train/validation data only |
-| 📊 Test checkpoints | `scripts/test_checkpoints.py` | Evaluate the two released checkpoints on explicitly named benchmark tasks |
+| 🔁 Reproduce training | `scripts/reproduce_train.py` | Split a training pool into train/validation (90:10 by molecule) and train without loading test data |
+| 📊 Test checkpoints | `scripts/test_checkpoints.py` | Evaluate checkpoints on explicitly named benchmark tasks after training |
 | 🚀 External prediction | `scripts/predict_external.py` | Predict pKa for an external CSV |
 
 ✅ The released checkpoints are validation-selected. Training code does not monitor test or external benchmark sets.
@@ -53,12 +53,12 @@ External joint prediction only requires `smiles`. If `mol_id`, `pka`, `task`, or
 
 ## 🔁 Reproduce Our Training Results
 
-This script reproduces the pKaLearn article Table 1 entry2/no-carbon protocol used for the released checkpoints:
+The training script accepts only a training pool. It makes a deterministic 9:1 train/validation split grouped by canonical molecular structure, so records for the same molecule cannot fall on both sides. The split is reproducible with `--split-seed` and independent of the model-initialization `--seed`. Early stopping and checkpoint selection use validation MAE. The held-out test CSV is not an argument to, or loaded by, the training script.
 
-- 🧬 training file: `data/article_protocols/article_entry2_noC_train.csv`
-- 🧪 validation file: `data/article_protocols/article_entry2_noC_val.csv`
+- 🧬 default training pool: `data/article_protocols/article_entry2_noC_train_pool.csv`
+- 🧪 alternative pools: `data/article_protocols/article_entry3_fromNS_train_pool.csv` and `data/article_protocols/article_entry4_noNovartis_train_pool.csv`
 - 🎲 training uses one randomly sampled conformer per molecule per epoch
-- ✅ checkpoint selection uses validation MAE only
+- ✅ validation is generated internally; no test data are read during training
 
 Run both known-IC and joint training:
 
@@ -71,7 +71,7 @@ PYTHONPATH=src python scripts/reproduce_train.py \
   --workers 8
 ```
 
-Outputs are written to `models_reproduce/` and `reports_reproduce/`.
+The command finishes both requested model settings for this seed before returning. Outputs and the generated split are written to `models_reproduce/` and `reports_reproduce/`. To train Entry 3 or Entry 4, pass the corresponding training-pool CSV with `--train-file` and use distinct checkpoint/report names.
 
 ## 📊 Test Released Checkpoints
 
@@ -80,7 +80,7 @@ The released checkpoints are:
 - 🎯 known IC: `checkpoints/known_ic_entry2_noC/best.pt`
 - 🔗 joint IC+pKa: `checkpoints/joint_entry2_noC/best.pt`
 
-Default benchmark: `entry2_noC`, which tests the article entry2/no-carbon protocol on:
+Run the test script separately, after the training command has completed. Default benchmark: `entry2_noC`, which tests the article entry2/no-carbon protocol on:
 
 `data/article_protocols/article_entry2_noC_test.csv`
 
@@ -96,7 +96,10 @@ Available named benchmark tasks:
 
 | benchmark | CSV | purpose |
 | --- | --- | --- |
+| `entry1` | `data/article_protocols/article_entry1_test.csv` | pKaLearn Table 1 entry 1 testing set |
 | `entry2_noC` | `data/article_protocols/article_entry2_noC_test.csv` | pKaLearn Table 1 entry2/no-carbon test |
+| `entry3_fromNS` | `data/article_protocols/article_entry3_fromNS_test.csv` | pKaLearn Table 1 entry 3 held-out Novartis test set |
+| `entry4_noNovartis` | `data/article_protocols/article_entry4_noNovartis_test.csv` | pKaLearn Table 1 entry 4 held-out Novartis test set |
 | `official_test` | `data/processed/test.csv` | included official held-out test split |
 | `sampl8` | `data/downstream/SAMPL8.csv` | external SAMPL8 benchmark |
 | `eurosampl` | `data/downstream/euroSAMPL.csv` | external euroSAMPL benchmark |
@@ -136,4 +139,4 @@ PYTHONPATH=src python scripts/predict_external.py \
 
 ## 🔒 Notes on Data Use
 
-Training scripts read only the configured train and validation CSV files. Test and external benchmark CSVs are used only by `scripts/test_checkpoints.py` or by explicit external prediction/evaluation commands after training.
+Training and testing are separate entry points. `scripts/reproduce_train.py` reads only the specified training-pool CSV and creates its own 9:1 train/validation split; it has no test-file option. `scripts/test_checkpoints.py` is run separately after training and loads held-out benchmark data only for final evaluation. Validation MAE is the only quantity used for early stopping and checkpoint selection.

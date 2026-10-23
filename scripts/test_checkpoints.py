@@ -10,14 +10,20 @@ from liten_pka.conformer_generation import generate_conformers_for_tables
 from liten_pka.predict import predict_table
 
 BENCHMARKS = {
+    "entry1": "data/article_protocols/article_entry1_test.csv",
     "entry2_noC": "data/article_protocols/article_entry2_noC_test.csv",
+    "entry3_fromNS": "data/article_protocols/article_entry3_fromNS_test.csv",
+    "entry4_noNovartis": "data/article_protocols/article_entry4_noNovartis_test.csv",
     "official_test": "data/processed/test.csv",
     "sampl8": "data/downstream/SAMPL8.csv",
     "eurosampl": "data/downstream/euroSAMPL.csv",
 }
 
 TASK_NOTES = {
+    "entry1": "pKaLearn article Table 1 entry 1 testing set.",
     "entry2_noC": "pKaLearn article Table 1 entry 2: no-carbon training protocol evaluated on no-carbon testing set.",
+    "entry3_fromNS": "pKaLearn article Table 1 entry 3 held-out Novartis test set.",
+    "entry4_noNovartis": "pKaLearn article Table 1 entry 4 held-out Novartis test set.",
     "official_test": "Included pKaLearn official held-out test split prepared in data/processed/test.csv.",
     "sampl8": "External SAMPL8 benchmark table included in data/downstream/SAMPL8.csv.",
     "eurosampl": "External euroSAMPL benchmark table included in data/downstream/euroSAMPL.csv.",
