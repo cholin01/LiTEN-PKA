@@ -8,6 +8,10 @@ reports*/
 results/
 models*/
 data/conformers*/
-# Distribute the original article conformer cache.
+# Distribute the original model input caches.
+!data/conformers/
+!data/conformers/**
+!data/conformers_entry2_row_order/
+!data/conformers_entry2_row_order/**
 !data/conformers_article_row_order/
 !data/conformers_article_row_order/**
