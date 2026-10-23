@@ -8,3 +8,6 @@ reports*/
 results/
 models*/
 data/conformers*/
+# Distribute the original article conformer cache.
+!data/conformers_article_row_order/
+!data/conformers_article_row_order/**
