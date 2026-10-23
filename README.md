@@ -73,14 +73,21 @@ PYTHONPATH=src python scripts/reproduce_train.py \
 
 The command finishes both requested model settings for this seed before returning. Outputs and the generated split are written to `models_reproduce/` and `reports_reproduce/`. To train Entry 3 or Entry 4, pass the corresponding training-pool CSV with `--train-file` and use distinct checkpoint/report names.
 
-## 📊 Test Released Checkpoints
+## 📊 Final Test Evaluation
 
-The released checkpoints are:
+The test script accepts either released checkpoints or checkpoints produced by `reproduce_train.py`. For a final Entry 2 test of the newly trained models, run this only after training has completed:
 
-- 🎯 known IC: `checkpoints/known_ic_entry2_noC/best.pt`
-- 🔗 joint IC+pKa: `checkpoints/joint_entry2_noC/best.pt`
+```bash
+PYTHONPATH=src python scripts/test_checkpoints.py \
+  --benchmark entry2_noC \
+  --known-ic-checkpoint models_reproduce/known_ic_entry2_noC/seed_0/best.pt \
+  --joint-checkpoint models_reproduce/joint_entry2_noC/seed_0/best.pt \
+  --mode both \
+  --workers 8 \
+  --batch-size 8
+```
 
-Run the test script separately, after the training command has completed. Default benchmark: `entry2_noC`, which tests the article entry2/no-carbon protocol on:
+The default benchmark is `entry2_noC`, using:
 
 `data/article_protocols/article_entry2_noC_test.csv`
 
