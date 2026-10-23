@@ -5,7 +5,7 @@
 | Workflow | Script | Purpose |
 | --- | --- | --- |
 | 🔁 Reproduce training | `scripts/reproduce_train.py` | Split a training pool into train/validation (90:10 by molecule) and train without loading test data |
-| 📊 Test checkpoints | `scripts/test_checkpoints.py` | Evaluate checkpoints on explicitly named benchmark tasks after training |
+| 📊 Test checkpoints | `scripts/test_checkpoints.py` | Evaluate released or newly trained checkpoints on named benchmarks |
 | 🚀 External prediction | `scripts/predict_external.py` | Predict pKa for an external CSV |
 
 ✅ The released checkpoints are validation-selected. Training code does not monitor test or external benchmark sets.
@@ -15,8 +15,8 @@
 ```text
 configs/                       Training configuration
 scripts/
-  reproduce_train.py           Reproduce our entry2/no-carbon training results
-  test_checkpoints.py          Test the two released checkpoints on named benchmark tasks
+  reproduce_train.py           Train from Entry 2, 3, or 4 training pools
+  test_checkpoints.py          Evaluate checkpoints on named benchmark tasks
   predict_external.py          Predict external CSV files
 src/liten_pka/                 LiTEN-pKa package and model code
 checkpoints/
@@ -71,11 +71,31 @@ PYTHONPATH=src python scripts/reproduce_train.py \
   --workers 8
 ```
 
-The command finishes both requested model settings for this seed before returning. Outputs and the generated split are written to `models_reproduce/` and `reports_reproduce/`. To train Entry 3 or Entry 4, pass the corresponding training-pool CSV with `--train-file` and use distinct checkpoint/report names.
+The command finishes both requested model settings for this seed before returning. Outputs and the generated split are written to `models_reproduce/` and `reports_reproduce/`.
+
+Entry 3 and Entry 4 use their own training pools and output directories:
+
+```bash
+PYTHONPATH=src python scripts/reproduce_train.py \
+  --mode both --seed 0 \
+  --train-file data/article_protocols/article_entry3_fromNS_train_pool.csv \
+  --known-ic-name known_ic_entry3_fromNS \
+  --joint-name joint_entry3_fromNS \
+  --checkpoint-dir models_reproduce/entry3_fromNS \
+  --report-dir reports_reproduce/entry3_fromNS
+
+PYTHONPATH=src python scripts/reproduce_train.py \
+  --mode both --seed 0 \
+  --train-file data/article_protocols/article_entry4_noNovartis_train_pool.csv \
+  --known-ic-name known_ic_entry4_noNovartis \
+  --joint-name joint_entry4_noNovartis \
+  --checkpoint-dir models_reproduce/entry4_noNovartis \
+  --report-dir reports_reproduce/entry4_noNovartis
+```
 
 ## 📊 Final Test Evaluation
 
-The test script accepts either released checkpoints or checkpoints produced by `reproduce_train.py`. For a final Entry 2 test of the newly trained models, run this only after training has completed:
+The test script accepts either released checkpoints or checkpoints produced by `reproduce_train.py`. Run it only after the relevant training command has completed. For a final Entry 2 test of the newly trained models:
 
 ```bash
 PYTHONPATH=src python scripts/test_checkpoints.py \
@@ -87,7 +107,23 @@ PYTHONPATH=src python scripts/test_checkpoints.py \
   --batch-size 8
 ```
 
-The default benchmark is `entry2_noC`, using:
+For Entry 3 or Entry 4, select the corresponding benchmark and checkpoints:
+
+```bash
+PYTHONPATH=src python scripts/test_checkpoints.py \
+  --benchmark entry3_fromNS \
+  --known-ic-checkpoint models_reproduce/entry3_fromNS/known_ic_entry3_fromNS/seed_0/best.pt \
+  --joint-checkpoint models_reproduce/entry3_fromNS/joint_entry3_fromNS/seed_0/best.pt \
+  --mode both
+
+PYTHONPATH=src python scripts/test_checkpoints.py \
+  --benchmark entry4_noNovartis \
+  --known-ic-checkpoint models_reproduce/entry4_noNovartis/known_ic_entry4_noNovartis/seed_0/best.pt \
+  --joint-checkpoint models_reproduce/entry4_noNovartis/joint_entry4_noNovartis/seed_0/best.pt \
+  --mode both
+```
+
+To evaluate the repository's released Entry 2 checkpoints instead, omit the checkpoint paths; the default benchmark is `entry2_noC`, using:
 
 `data/article_protocols/article_entry2_noC_test.csv`
 
