@@ -1,0 +1,4 @@
+protocol,train_source,test_source,train_pool_rows,test_rows,train_pool_file,test_file,archived_train_rows,archived_val_rows
+article_entry1,train_set_0.65.csv,test_set.csv,9759,2187,data/article_protocols/article_entry1_train_pool.csv,data/article_protocols/article_entry1_test.csv,8783,976
+article_entry2_noC,train_set_noC.csv,test_set_noC.csv,9460,2096,data/article_protocols/article_entry2_noC_train_pool.csv,data/article_protocols/article_entry2_noC_test.csv,8514,946
+article_entry3_fromNS,train_set_fromNS_0.65.csv,test_set_Novartis.csv,11974,276,data/article_protocols/article_entry3_fromNS_train_pool.csv,data/article_protocols/article_entry3_fromNS_test.csv,10776,1198

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+._*
+*.log
+runs/
+reports*/
+results/
+models*/
+data/conformers*/
+# Distribute the original model input caches.
+!data/conformers/
+!data/conformers/**
+!data/conformers_entry2_row_order/
+!data/conformers_entry2_row_order/**
+!data/conformers_article_row_order/
+!data/conformers_article_row_order/**
