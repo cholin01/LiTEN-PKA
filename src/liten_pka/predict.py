@@ -90,6 +90,7 @@ def predict_table(
     batch_size: int = 8,
     device: str = "cuda",
     mode: Literal["known_ic", "joint"] = "known_ic",
+    site_candidate_policy: str = "heavy_inference",
 ) -> pd.DataFrame:
     state = torch.load(checkpoint, map_location="cpu")
     config: dict[str, Any] = state["config"]
@@ -99,9 +100,17 @@ def predict_table(
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_pka)
         dev = torch.device(device if torch.cuda.is_available() else "cpu")
         if mode == "known_ic":
-            model = LiTENPKA(config["liten"], config["model"]).to(dev)
+            if config["model"].get("architecture", "liten") == "schnet":
+                from .schnet import SiteSchNet
+                model = SiteSchNet().to(dev)
+            else:
+                # Full trained weights are loaded below; old machine-specific
+                # pretraining paths must not be dereferenced during prediction.
+                liten_config = dict(config["liten"], checkpoint="")
+                model = LiTENPKA(liten_config, config["model"]).to(dev)
         elif mode == "joint":
-            model = LiTENJointSitePKA(config["liten"], config["model"]).to(dev)
+            model_cfg = dict(config["model"], site_candidate_policy=site_candidate_policy)
+            model = LiTENJointSitePKA(dict(config["liten"], checkpoint=""), model_cfg).to(dev)
         else:
             raise ValueError(f"Unknown prediction mode: {mode}")
         model.load_state_dict(state["model"], strict=True)

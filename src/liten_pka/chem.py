@@ -281,6 +281,10 @@ def embed_rdkit_conformers(
     params.randomSeed = int(seed)
     if hasattr(params, "maxAttempts"):
         params.maxAttempts = int(max_attempts)
+    elif hasattr(params, "maxIterations"):
+        params.maxIterations = int(max_attempts)
+    else:
+        raise RuntimeError("This RDKit build cannot configure the embedding iteration limit.")
     params.pruneRmsThresh = float(prune_rms_thresh)
     params.useRandomCoords = True
     ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params))

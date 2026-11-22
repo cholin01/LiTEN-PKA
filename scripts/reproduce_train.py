@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -132,6 +133,9 @@ def main() -> None:
     )
     parser.add_argument("--config", default="configs/pkalearn_liten.yaml")
     parser.add_argument("--mode", choices=["known_ic", "joint", "both"], default="both")
+    parser.add_argument("--baseline", choices=["ft", "scratch", "frozen", "schnet"], default="ft")
+    parser.add_argument("--pretrain-checkpoint", default="", help="Override the SPICE initialization path for ft/frozen runs.")
+    parser.add_argument("--val-file", default="", help="Fixed validation CSV; --train-file then means the fixed training CSV, not a pool.")
     parser.add_argument(
         "--train-file",
         default=None,
@@ -152,6 +156,8 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--force-conformers", action="store_true")
     args = parser.parse_args()
+    if args.baseline == "schnet" and args.mode != "known_ic":
+        parser.error("SchNet supports known_ic only.")
 
     base_cfg = load_config(args.config)
     data_cfg = base_cfg["data"]
@@ -162,14 +168,26 @@ def main() -> None:
     args.conformer_dir = conformer_dir
 
     run_tag = train_pool.stem
-    split_info = split_train_pool(
-        train_pool,
-        Path(args.report_dir) / "splits" / f"{run_tag}_split_seed_{args.split_seed}",
-        smiles_column=data_cfg["smiles_column"],
-        validation_fraction=0.1,
-        split_seed=args.split_seed,
-    )
-    split_info["source_training_pool"] = str(train_pool)
+    if args.val_file:
+        val_file = Path(args.val_file)
+        train_table, val_table = pd.read_csv(train_pool), pd.read_csv(val_file)
+        column = data_cfg["smiles_column"]
+        train_keys = set(train_table[column].astype(str).map(_structure_group_key))
+        val_keys = set(val_table[column].astype(str).map(_structure_group_key))
+        if train_keys & val_keys:
+            raise ValueError("Fixed training and validation sets share canonical structures.")
+        split_info = dict(train_file=str(train_pool), val_file=str(val_file),
+                          train_records=len(train_table), validation_records=len(val_table),
+                          split_policy="provided_fixed_split")
+    else:
+        split_info = split_train_pool(
+            train_pool,
+            Path(args.report_dir) / "splits" / f"{run_tag}_split_seed_{args.split_seed}",
+            smiles_column=data_cfg["smiles_column"],
+            validation_fraction=0.1,
+            split_seed=args.split_seed,
+        )
+    split_info["source_training_file" if args.val_file else "source_training_pool"] = str(train_pool)
     print("Training/validation split:")
     print(json.dumps(split_info, indent=2))
 
@@ -177,13 +195,31 @@ def main() -> None:
         base_cfg,
         _common_updates(args, Path(split_info["train_file"]), Path(split_info["val_file"])),
     )
+    cfg.setdefault("model", {})["architecture"] = "schnet" if args.baseline == "schnet" else "liten"
+    cfg.setdefault("liten", {})
+    if args.pretrain_checkpoint:
+        cfg["liten"]["checkpoint"] = args.pretrain_checkpoint
+    if args.baseline in {"scratch", "schnet"}:
+        cfg["liten"]["checkpoint"] = ""
+    cfg["liten"]["freeze_backbone"] = args.baseline == "frozen"
+    pretrained_path = cfg["liten"].get("checkpoint")
+    if pretrained_path and not Path(pretrained_path).is_file():
+        raise FileNotFoundError(
+            f"SPICE initialization not found: {pretrained_path}. Provide the original "
+            "weight file with --pretrain-checkpoint; no substitute weights are used."
+        )
+    cfg["train"]["keep_top_k"] = 5
+    split_info["input_sha256"] = {
+        key: hashlib.sha256(Path(split_info[key]).read_bytes()).hexdigest()
+        for key in ("train_file", "val_file")
+    }
     ensure_dirs(cfg)
 
     # Conformers are generated only for the supplied training pool. The test CSV
     # is handled by the separate test_checkpoints.py entry point after training.
     manifest_path = Path(args.conformer_dir) / "manifest.csv"
     generate_conformers_for_tables(
-        [train_pool],
+        [Path(split_info["train_file"]), Path(split_info["val_file"])] if args.val_file else [train_pool],
         args.conformer_dir,
         cfg,
         workers=args.workers,

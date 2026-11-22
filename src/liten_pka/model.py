@@ -207,6 +207,9 @@ class LiTENJointSitePKA(nn.Module):
         hidden = self.encoder.hidden_channels
         task_dim = int(model_config.get("task_embedding_dim", 16))
         self.task_embedding = nn.Embedding(4, task_dim)
+        self.site_candidate_policy = str(model_config.get("site_candidate_policy", "heavy_inference"))
+        if self.site_candidate_policy not in {"heavy_inference", "legacy_all"}:
+            raise ValueError("site_candidate_policy must be heavy_inference or legacy_all")
         dropout = float(model_config.get("dropout", 0.1))
 
         self.site_head = nn.Sequential(
@@ -254,6 +257,7 @@ class LiTENJointSitePKA(nn.Module):
                     raise ValueError(f"No atoms found for conformer index {conf_id}.")
                 if j == 0:
                     fallback_center = int((center_indices[conf_id] - atom_indices[0]).item())
+                    atom_z = z[atom_indices]
                 conf_nodes.append(node_h[atom_indices])
 
             n_atoms = conf_nodes[0].size(0)
@@ -272,7 +276,14 @@ class LiTENJointSitePKA(nn.Module):
             task_h = self.task_embedding(task_id[mol_idx])
             task_atoms = task_h.unsqueeze(0).expand(n_atoms, -1)
             site_logits = self.site_head(torch.cat([atom_h, task_atoms], dim=-1)).squeeze(-1)
-            pred_center = int(torch.argmax(site_logits.detach()).item())
+            selection_logits = site_logits.detach()
+            # H atoms stay in the encoder and graph mean; only inference candidates change.
+            if not self.training and self.site_candidate_policy == "heavy_inference":
+                heavy = atom_z > 1
+                if not bool(heavy.any()):
+                    raise ValueError("Joint inference requires at least one heavy atom.")
+                selection_logits = selection_logits.masked_fill(~heavy, -torch.inf)
+            pred_center = int(torch.argmax(selection_logits).item())
             pred_centers.append(pred_center)
             if target_center is not None:
                 target = torch.tensor([target_center], dtype=torch.long, device=site_logits.device)

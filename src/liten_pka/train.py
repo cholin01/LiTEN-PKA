@@ -101,7 +101,11 @@ def train_one_seed(config: dict[str, Any], seed: int, experiment_name: str = "li
     )
     val_loader = build_loader(data_cfg["val_file"], manifest_path, data_cfg, train_cfg, model_cfg)
 
-    model = LiTENPKA(config["liten"], config["model"]).to(device)
+    if model_cfg.get("architecture", "liten") == "schnet":
+        from .schnet import SiteSchNet
+        model = SiteSchNet().to(device)
+    else:
+        model = LiTENPKA(config["liten"], config["model"]).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(train_cfg["lr"]),
@@ -116,7 +120,7 @@ def train_one_seed(config: dict[str, Any], seed: int, experiment_name: str = "li
     best_mae = float("inf")
     best_epoch = -1
     patience = int(train_cfg.get("patience", 20))
-    keep_top_k = int(train_cfg.get("keep_top_k", 1))
+    keep_top_k = int(train_cfg.get("keep_top_k", 5))
     save_last = bool(train_cfg.get("save_last", True))
     top_checkpoints: list[dict[str, Any]] = []
     history_path = report_dir / "history.jsonl"

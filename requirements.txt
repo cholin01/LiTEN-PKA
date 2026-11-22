@@ -1,7 +1,13 @@
 torch
+torch-geometric>=2.4
+torch-scatter>=2.1
+torch-cluster>=1.6
 numpy
 pandas
 PyYAML
 tqdm
 rdkit
 scikit-learn
+scipy>=1.10
+matplotlib>=3.7
+Pillow>=10

@@ -16,7 +16,11 @@ dependencies = [
   "torch>=2.0",
   "torch-geometric>=2.4",
   "torch-scatter>=2.1",
+  "torch-cluster>=1.6",
   "rdkit>=2023.9",
+  "scipy>=1.10",
+  "matplotlib>=3.7",
+  "Pillow>=10",
 ]
 
 [tool.setuptools.packages.find]
