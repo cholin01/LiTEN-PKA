@@ -175,6 +175,75 @@ PYTHONPATH=src python scripts/predict_external.py \
   --output predictions/external_known_ic_predictions.csv
 ```
 
+## Reproducibility Workflows
+
+The reproduction workflows use five training seeds (`0, 1, 2, 3, 4`) with a fixed molecule-grouped training/validation split (`split_seed=0`). Early stopping and checkpoint selection use validation MAE. The five best validation checkpoints are retained (`keep_top_k=5`). All five runs contribute to the reported mean and sample standard deviation.
+
+| Analysis | Entry point | Inputs |
+|---|---|---|
+| Five-run training and evaluation | `scripts/reproduce_five_seeds.py` | Protocol-specific training pool and test CSVs |
+| Five-run summaries | `scripts/reproduce_results.py` | Training histories, checkpoint metadata and predictions |
+| Bootstrap confidence intervals | `scripts/reproduce_bootstrap.py` | Aligned predictions exported by the summary script |
+| SchNet comparison | `scripts/reproduce_five_seeds.py --model schnet` | The same protocol-specific data partitions |
+| Figure 5 representation analyses | `scripts/extract_figure5.py` | Fine-tuned and scratch checkpoints, training/test CSVs and conformer manifest |
+| Figure 5 plotting | `scripts/reproduce_figure5.py` | Exported representation-analysis tables |
+
+Protocol selection determines the corresponding training pool and evaluation tasks:
+
+| `--entry` | Training pool in `data/article_protocols/` | Evaluation tasks |
+|---|---|---|
+| `entry1` | `article_entry1_train_pool.csv` | Entry 1 Testing |
+| `entry2` | `article_entry2_noC_train_pool.csv` | NoC, SAMPL8 and euroSAMPL |
+| `entry3` | `article_entry3_fromNS_train_pool.csv` | Held-out Novartis |
+
+Run the following commands from the repository root. This example runs the Entry 2 comparison protocol:
+
+```bash
+export PYTHONPATH=src
+for model in ft scratch frozen schnet; do
+  python scripts/reproduce_five_seeds.py --phase train --entry entry2 --model "$model" --mode known_ic
+  python scripts/reproduce_five_seeds.py --phase test --entry entry2 --model "$model" --mode known_ic
+done
+python scripts/reproduce_results.py --entry entry2 --models ft scratch frozen schnet
+python scripts/reproduce_bootstrap.py --input-dir results/reproduced
+```
+
+Here, `ft` denotes SPICE-initialized fine-tuning, `scratch` denotes LiTEN trained from random initialization, `frozen` denotes a frozen SPICE backbone with a trainable downstream head, and `schnet` denotes the site-aware SchNet baseline trained from scratch. The examples use provided ionization centers. Joint training is available through `--mode joint` for the LiTEN variants.
+
+The default configuration is `configs/pkalearn_liten.yaml`, with batch size 32, learning rate `1e-4` and a maximum of 100 epochs. Runs are identified by protocol, model, prediction mode and seed, for example `entry2_noC_ft_known_ic/seed_0`. Outputs under `results/fresh_five_runs/` include the generated splits, training histories, checkpoint configurations and evaluation metadata. Summaries include checkpoint hashes to link predictions to the evaluated weights.
+
+Bootstrap analysis uses 10,000 resamples and reports 95% percentile intervals for the scratch-minus-fine-tuned error difference. Molecules are resampled as canonical-structure clusters; SAMPL8 records are grouped by parent compound. Separate intervals describe sample uncertainty, training-run uncertainty and their combination.
+
+For the Figure 5 fine-tuned-versus-scratch analysis, use fixed checkpoints and the training partition generated above:
+
+```bash
+BASE=results/fresh_five_runs
+FT="$BASE/entry2_noC_ft_known_ic/seed_0"
+SC="$BASE/entry2_noC_scratch_known_ic/seed_0"
+python scripts/extract_figure5.py \
+  --pretrained-ckpt "$FT/models/entry2_noC_ft_known_ic/seed_0/best.pt" \
+  --scratch-ckpt "$SC/models/entry2_noC_scratch_known_ic/seed_0/best.pt" \
+  --train-file "$FT/reports/splits/article_entry2_noC_train_pool_split_seed_0/train.csv" \
+  --test-file data/article_protocols/article_entry2_noC_test.csv \
+  --manifest "$BASE/conformers/entry2_noC/manifest.csv" \
+  --out-dir results/figure5/data/interpretability
+python scripts/reproduce_figure5.py --data-dir results/figure5/data --out-dir results/figure5/plots
+```
+
+Linear probes and nearest-neighbor readouts are fitted using training-set representations only. Test representations are used for evaluation and visualization. The original SPICE checkpoint supplies the reference weights for the parameter-space comparisons.
+
+## Conformer Cache
+
+Conformers are generated from the input SMILES with explicit hydrogen atoms using RDKit ETKDGv3, followed by MMFF minimization, or UFF when MMFF is unavailable. Default settings are five conformers, base random seed `2026`, embedding limit `1000`, RMS pruning threshold `-1.0` and a maximum of 500 force-field minimization iterations.
+
+Each cache records the exact input SMILES, RDKit version, generation settings, derived molecular seed and cache-schema version. Molecular seeds are derived deterministically from the base seed and input SMILES, independently of row order and worker scheduling. Cache reuse checks the metadata, atom ordering, coordinate dimensions and file checksum. Incompatible or corrupted caches are regenerated. Legacy caches without generation metadata are regenerated by default; explicit reuse through `legacy_cache_policy: allow` is marked as unverified.
+
+## Ionization-Site Candidates
+
+Hydrogen atoms remain explicit and participate in molecular encoding and graph aggregation. During joint-model inference and evaluation, candidate ionization centers are restricted to heavy atoms (`atomic number > 1`) before selecting the highest-scoring site. The selected atom embedding is then used for pKa prediction. This inference-time restriction does not change the training site-classification loss.
+
+Known-IC prediction instead uses the supplied zero-based `center_atom_idx`, which must identify the intended heavy atom in the RDKit-parsed input SMILES before hydrogen addition.
+
 ## 🔒 Notes on Data Use
 
 To support a fair comparison with pKaLearn, the Entry datasets follow the corresponding pKaLearn training/test partitions listed in [the protocol manifest](data/article_protocols/protocol_manifest.csv): retained records are not reassigned between training and test sets. The released CSVs reflect preprocessing and may contain fewer records than the original source files.
