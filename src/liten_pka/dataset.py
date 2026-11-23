@@ -10,6 +10,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .chem import pkalearn_atom_features
+from .site_validation import checked_center
 
 
 @dataclass
@@ -77,7 +78,8 @@ class PKADataset(Dataset[PKASample]):
         row = self.table.iloc[idx]
         cached = np.load(row["conformer_npz"], allow_pickle=True)
         task = str(row.get(self.task_column, "unknown")).lower()
-        center_idx = int(row.get(self.center_column, -1))
+        center_idx = checked_center(row.get(self.center_column, -1), cached["z"],
+                                    allow_missing=True, context=f"molecule {row[self.id_column]}")
         atom_features = pkalearn_atom_features(
             str(row[self.smiles_column]),
             feature_set=self.atom_feature_set,
@@ -123,6 +125,8 @@ def collate_pka(
     conf_idx = 0
     for mol_idx, sample in enumerate(batch):
         n_confs, n_atoms, _ = sample.pos.shape
+        center = checked_center(sample.center_atom_idx.item(), sample.z,
+                                allow_missing=True, context=f"molecule {sample.mol_id}")
         if sample.atom_features.shape[0] != n_atoms:
             raise ValueError(
                 f"Atom feature count mismatch for {sample.mol_id}: "
@@ -138,7 +142,6 @@ def collate_pka(
             feat_chunks.append(sample.atom_features)
             conf_batch.append(torch.full((n_atoms,), conf_idx, dtype=torch.long))
             mol_for_conf.append(mol_idx)
-            center = int(sample.center_atom_idx.item())
             center_indices.append(atom_offset + (center if center >= 0 else 0))
             atom_offset += n_atoms
             conf_idx += 1

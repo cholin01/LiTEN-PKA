@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .chem import pkalearn_atom_feature_dim
+from .site_validation import validate_batch_centers
 
 
 def mean_pool(x: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
@@ -134,6 +135,8 @@ class LiTENPKA(nn.Module):
         )
 
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        if self.use_site_readout:
+            validate_batch_centers(batch)
         z = batch["z"]
         pos = batch["pos"]
         atom_features = batch.get("atom_features")
@@ -167,8 +170,7 @@ class LiTENPKA(nn.Module):
                 atom_h = torch.stack(conf_nodes, dim=0).mean(dim=0)
                 graph_h = atom_h.mean(dim=0)
                 if self.use_site_readout:
-                    center = max(0, min(local_center, n_atoms - 1))
-                    site_h = atom_h[center]
+                    site_h = atom_h[local_center]
                 else:
                     site_h = torch.zeros_like(graph_h)
                 task_h = self.task_embedding(task_id[mol_idx])
@@ -228,6 +230,7 @@ class LiTENJointSitePKA(nn.Module):
         )
 
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        validate_batch_centers(batch, allow_missing=True)
         z = batch["z"]
         pos = batch["pos"]
         atom_features = batch.get("atom_features")
@@ -267,9 +270,9 @@ class LiTENJointSitePKA(nn.Module):
             if raw_center_idx is not None:
                 raw_center = int(raw_center_idx[mol_idx].item())
                 if raw_center >= 0:
-                    target_center = max(0, min(raw_center, n_atoms - 1))
+                    target_center = raw_center
             else:
-                target_center = max(0, min(fallback_center, n_atoms - 1))
+                target_center = fallback_center
 
             atom_h = torch.stack(conf_nodes, dim=0).mean(dim=0)
             graph_h = atom_h.mean(dim=0)

@@ -7,11 +7,13 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 import torch
+from rdkit import Chem
 from torch.utils.data import DataLoader
 
 from .dataset import PKADataset, collate_pka
 from .metrics import regression_metrics
 from .model import LiTENJointSitePKA, LiTENPKA, move_batch_to_device
+from .site_validation import checked_center
 
 
 def prepare_prediction_table(
@@ -49,8 +51,12 @@ def prepare_prediction_table(
             )
         df[center_col] = -1
         changed = True
-    if mode == "known_ic" and (df[center_col].astype(float) < 0).any():
-        raise ValueError(f"Known-IC prediction requires non-negative '{center_col}' for every row.")
+    for row_index, row in df.iterrows():
+        mol = Chem.MolFromSmiles(str(row[smiles_col]))
+        if mol is None:
+            raise ValueError(f"Input row {row_index}: invalid SMILES.")
+        checked_center(row[center_col], [atom.GetAtomicNum() for atom in mol.GetAtoms()],
+                       allow_missing=mode == "joint", context=f"input row {row_index}")
 
     if not changed:
         return table_path, df, None

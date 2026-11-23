@@ -52,10 +52,10 @@ class SiteAccuracyTests(unittest.TestCase):
         for p in model.site_head.parameters():
             torch.nn.init.zeros_(p)
         batch = {
-            'z': torch.tensor([6, 1] * 3), 'pos': torch.zeros(6, 3),
+            'z': torch.tensor([6, 7] * 3), 'pos': torch.zeros(6, 3),
             'conf_batch': torch.tensor([0, 0, 1, 1, 2, 2]),
             'mol_for_conf': torch.tensor([0, 1, 2]),
-            'center_indices': torch.tensor([0, 2, 4]),
+            'center_indices': torch.tensor([0, 3, 4]),
             'center_atom_idx': torch.tensor([0, 1, -1]), 'task_id': torch.zeros(3, dtype=torch.long),
         }
         result = model(batch)

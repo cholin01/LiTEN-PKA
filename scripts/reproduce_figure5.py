@@ -300,9 +300,10 @@ def plot_pairwise(ax: plt.Axes) -> None:
     ax.set_ylim(0, 0.66)
 
 
-def prediction_cases(case_rows: list[int] | None = None) -> pd.DataFrame:
-    pre = pd.read_csv(PRED / "pretrained_predictions.csv")
-    scratch = pd.read_csv(PRED / "scratch_predictions.csv")
+def prediction_cases(case_rows: list[int] | None = None, prediction_dir: Path | None = None) -> pd.DataFrame:
+    prediction_dir = PRED if prediction_dir is None else prediction_dir
+    pre = pd.read_csv(prediction_dir / "pretrained_predictions.csv")
+    scratch = pd.read_csv(prediction_dir / "scratch_predictions.csv")
     cols = ["mol_id", "smiles", "pka", "task", "center_symbol", "center_atom_idx", "y_pred", "abs_error"]
     pd.testing.assert_frame_equal(pre[cols[:-2]], scratch[cols[:-2]], check_dtype=False)
     frame = pre[cols].rename(columns={"y_pred": "pred_pre", "abs_error": "err_pre"}).copy()
@@ -317,7 +318,7 @@ def prediction_cases(case_rows: list[int] | None = None) -> pd.DataFrame:
             case_rows = [0, 1]
     if len(set(case_rows)) != 2 or any(i < 0 or i >= len(frame) for i in case_rows):
         raise ValueError("Specify two distinct, valid case-row indices.")
-    return frame.iloc[case_rows].reset_index(drop=True)
+    return frame.iloc[case_rows].assign(input_row_index=case_rows).reset_index(drop=True)
 
 
 def molecule_image(smiles: str, center_atom_idx: int, size: tuple[int, int] = (760, 420)) -> Image.Image:
@@ -345,36 +346,44 @@ def molecule_image(smiles: str, center_atom_idx: int, size: tuple[int, int] = (7
     return Image.open(BytesIO(drawer.GetDrawingText())).convert("RGBA")
 
 
-def atom_context_scores(smiles: str, center_atom_idx: int) -> pd.DataFrame:
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        raise ValueError(f"Cannot parse SMILES: {smiles}")
-    center = int(center_atom_idx)
-    dmat = Chem.GetDistanceMatrix(mol)
-    rows = []
-    for atom in mol.GetAtoms():
-        idx = atom.GetIdx()
-        if idx == center:
-            continue
-        dist = int(dmat[center, idx])
-        if dist <= 3:
-            rows.append(
-                {
-                    "atom_idx": idx,
-                    "symbol": atom.GetSymbol(),
-                    "distance": dist,
-                    "score": float(np.exp(-0.65 * max(dist - 1, 0))),
-                }
-            )
-    frame = pd.DataFrame(rows).sort_values(["distance", "atom_idx"]).head(6)
-    if frame.empty:
-        return frame
-    frame["score"] = frame["score"] / frame["score"].max()
-    return frame.reset_index(drop=True)
+def case_attention(attention: pd.DataFrame, row: pd.Series) -> tuple[pd.DataFrame, list[int]]:
+    required = {"mode", "mol_id", "smiles", "task", "center_atom_idx", "atom_idx", "symbol",
+                "attention_strength", "prediction", "layer", "n_conformers", "n_heads",
+                "checkpoint_sha256", "conformer_sha256"}
+    if not required.issubset(attention.columns):
+        raise ValueError("Use extract_atom_attention.py to generate actual model attention first.")
+    scores = attention[(attention.mol_id.astype(str) == str(row.mol_id)) &
+                       (attention.smiles == row.smiles) & (attention.task == row.task) &
+                       (attention.center_atom_idx == row.center_atom_idx)].copy()
+    if set(scores["mode"]) != {"pretrained_ft", "scratch"}:
+        raise ValueError(f"Missing pretrained/scratch attention for {row.mol_id}.")
+    if scores.duplicated(["mode", "atom_idx"]).any():
+        raise ValueError("Ambiguous duplicate attention records for this molecule and site.")
+    for key in ("layer", "conformer_sha256", "n_conformers", "n_heads"):
+        if scores[key].nunique() != 1:
+            raise ValueError(f"Attention comparisons require matching {key}.")
+    mol = Chem.AddHs(Chem.MolFromSmiles(row.smiles))
+    for atom in scores.itertuples():
+        index = int(atom.atom_idx)
+        if (index != atom.atom_idx or not 0 <= index < mol.GetNumAtoms() or
+                index == int(row.center_atom_idx) or mol.GetAtomWithIdx(index).GetSymbol() != atom.symbol):
+            raise ValueError("Attention atom indices do not match the case SMILES.")
+    for mode, predicted in (("pretrained_ft", row.pred_pre), ("scratch", row.pred_scratch)):
+        sub = scores[scores["mode"] == mode]
+        if sub.checkpoint_sha256.nunique() != 1 or not np.allclose(sub.prediction, predicted, rtol=0, atol=5e-5):
+            raise ValueError("Attention checkpoint predictions do not match Figure 5 source predictions.")
+        values = sub.attention_strength.to_numpy()
+        if not np.isfinite(values).all() or (values < 0).any() or not np.isclose(values.sum(), 1.0):
+            raise ValueError("Invalid normalized attention strengths.")
+    # Both models show the same atom set; do not renormalize after selecting it.
+    ranked = scores.groupby("atom_idx").attention_strength.sum().sort_values(ascending=False, kind="stable")
+    return scores, ranked.head(6).index.astype(int).tolist()
 
 
-def plot_atom_context(ax: plt.Axes, row: pd.Series) -> None:
-    scores = atom_context_scores(row["smiles"], int(row["center_atom_idx"]))
+def plot_atom_attention(ax: plt.Axes, row: pd.Series, scores: pd.DataFrame,
+                        atom_indices: list[int], title: str, vmax: float) -> None:
+    scores = scores.set_index("atom_idx").reindex(atom_indices)
+    mol = Chem.AddHs(Chem.MolFromSmiles(row.smiles))
     ax.set_facecolor("#ECECEA")
     ax.set_aspect("equal")
     ax.set_xticks([])
@@ -384,7 +393,7 @@ def plot_atom_context(ax: plt.Axes, row: pd.Series) -> None:
     ax.text(
         0.50,
         1.10,
-        "Local atom context",
+        title,
         transform=ax.transAxes,
         ha="center",
         va="bottom",
@@ -395,25 +404,23 @@ def plot_atom_context(ax: plt.Axes, row: pd.Series) -> None:
     )
     ax.scatter([0], [0], s=46, color="#C11FA8", edgecolor=MORANDI["ink"], lw=0.7, zorder=4)
     ax.text(0, -0.19, f"{row['center_symbol']}{int(row['center_atom_idx'])}", ha="center", va="top", fontsize=4.9, fontweight="bold")
-    if scores.empty:
-        ax.set_xlim(-1.1, 1.1)
-        ax.set_ylim(-1.1, 1.1)
-        return
     theta = np.linspace(np.pi / 2, np.pi / 2 + 2 * np.pi, len(scores), endpoint=False)
     radius = 0.92
     xs = radius * np.cos(theta)
     ys = radius * np.sin(theta)
-    cmap = LinearSegmentedColormap.from_list("atom_context", ["#D9D8CF", MORANDI["pretrained"], "#283A5A"])
-    for i, atom in scores.iterrows():
-        color = cmap(float(atom["score"]))
-        ax.plot([0, xs[i]], [0, ys[i]], color=color, lw=0.9 + 1.4 * float(atom["score"]), alpha=0.95, zorder=1)
+    cmap = LinearSegmentedColormap.from_list("atom_attention", ["#D9D8CF", MORANDI["pretrained"], "#283A5A"])
+    for i, (atom_idx, atom) in enumerate(scores.iterrows()):
+        strength = 0.0 if pd.isna(atom["attention_strength"]) else float(atom["attention_strength"])
+        scaled = strength / max(vmax, 1e-12)
+        color = cmap(scaled)
+        ax.plot([0, xs[i]], [0, ys[i]], color=color, lw=0.5 + 1.8 * scaled, alpha=0.95, zorder=1)
         ax.scatter([xs[i]], [ys[i]], s=26, color=color, edgecolor="white", lw=0.45, zorder=3)
         ha = "left" if xs[i] > 0.05 else "right" if xs[i] < -0.05 else "center"
         va = "bottom" if ys[i] > 0 else "top"
         ax.text(
             xs[i] * 1.15,
             ys[i] * 1.15,
-            f"{atom['symbol']}{int(atom['atom_idx'])}",
+            f"{mol.GetAtomWithIdx(int(atom_idx)).GetSymbol()}{int(atom_idx)}",
             ha=ha,
             va=va,
             fontsize=4.25,
@@ -424,7 +431,8 @@ def plot_atom_context(ax: plt.Axes, row: pd.Series) -> None:
     ax.set_ylim(-1.45, 1.55)
 
 
-def plot_molecule_case(ax: plt.Axes, row: pd.Series, label: str) -> None:
+def plot_molecule_case(ax: plt.Axes, row: pd.Series, label: str, attention: pd.DataFrame) -> None:
+    scores, atom_indices = case_attention(attention, row)
     ax.set_axis_off()
     for spine in ax.spines.values():
         spine.set_visible(False)
@@ -441,12 +449,22 @@ def plot_molecule_case(ax: plt.Axes, row: pd.Series, label: str) -> None:
     )
     ax.add_patch(card)
     img = molecule_image(row["smiles"], int(row["center_atom_idx"]))
-    img_ax = ax.inset_axes([0.035, 0.30, 0.54, 0.54])
+    img_ax = ax.inset_axes([0.025, 0.31, 0.42, 0.50])
     img_ax.imshow(img)
     img_ax.set_axis_off()
     img_ax.set_aspect("equal")
-    ctx_ax = ax.inset_axes([0.635, 0.42, 0.30, 0.34])
-    plot_atom_context(ctx_ax, row)
+    vmax = float(scores.attention_strength.max())
+    for x, mode, title in ((0.48, "pretrained_ft", "Pretrained"), (0.75, "scratch", "Scratch")):
+        ctx_ax = ax.inset_axes([x, 0.40, 0.23, 0.34])
+        plot_atom_attention(ctx_ax, row, scores[scores["mode"] == mode], atom_indices, title, vmax)
+    ax.text(0.72, 0.835, f"Attention strength (L{int(scores.layer.iloc[0])})",
+            transform=ax.transAxes, ha="center", fontsize=5.3, fontweight="bold")
+    cmap = LinearSegmentedColormap.from_list("case_attention_scale", ["#D9D8CF", MORANDI["pretrained"], "#283A5A"])
+    cax = ax.inset_axes([0.55, 0.29, 0.35, 0.025])
+    cbar = ax.figure.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(0, vmax), cmap=cmap),
+                             cax=cax, orientation="horizontal", ticks=[0, vmax])
+    cbar.ax.set_xticklabels(["0", f"{vmax:.2f}"])
+    cbar.ax.tick_params(labelsize=4, length=1, pad=1)
     ax.text(
         0.040,
         0.94,
@@ -556,6 +574,8 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=PACKAGE / "data")
     parser.add_argument("--out-dir", type=Path, default=Path("results/reproduced/figure5"))
     parser.add_argument("--case-rows", type=int, nargs=2)
+    parser.add_argument("--attention-csv", type=Path,
+                        help="atom_attention.csv from extract_atom_attention.py using matching checkpoints/caches.")
     parser.add_argument("--formats", nargs="+", choices=["png", "pdf", "svg", "tiff"], default=["png", "pdf", "svg"])
     args = parser.parse_args()
     BASE, PRED, OUT = args.data_dir / "interpretability", args.data_dir / "predictions", args.out_dir
@@ -593,9 +613,13 @@ def main() -> None:
     panel_label(ax_e, "E")
     axes_f = plot_pca_panel(gs_f)
     cases = prediction_cases(args.case_rows)
-    plot_molecule_case(ax_g, cases.iloc[0], "G")
+    attention_path = args.attention_csv or BASE / "attention/atom_attention.csv"
+    if not attention_path.is_file():
+        raise FileNotFoundError("Real model attention is required. Run extract_figure5.py or extract_atom_attention.py first.")
+    attention = pd.read_csv(attention_path)
+    plot_molecule_case(ax_g, cases.iloc[0], "G", attention)
     panel_label(ax_g, "G")
-    plot_molecule_case(ax_h, cases.iloc[1], "H")
+    plot_molecule_case(ax_h, cases.iloc[1], "H", attention)
 
     fig.suptitle(
         "Machine-learned potential pretraining yields pKa-aware LiTEN representations",

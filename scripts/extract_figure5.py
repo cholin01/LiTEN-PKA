@@ -33,6 +33,7 @@ from liten_pka.config import load_config
 from liten_pka.dataset import PKADataset, collate_pka
 from liten_pka.model import LiTENPKA, move_batch_to_device
 from liten_pka.train import set_seed
+from liten_pka.attention import extract_cases, write_attention_outputs
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pair-sample", type=int, default=100000)
     parser.add_argument("--knn-k", type=int, default=10)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--case-rows", type=int, nargs=2)
+    parser.add_argument("--attention-layer", type=int, default=6)
     return parser.parse_args()
 
 
@@ -512,6 +515,17 @@ def main() -> None:
     write_embedding_tables(train_df, test_df, out_dir)
     write_projection_tables(test_df, out_dir)
     write_prediction_tables(test_df, test_loader.dataset, out_dir.parent / "predictions")
+    from reproduce_figure5 import prediction_cases
+    cases = prediction_cases(args.case_rows, out_dir.parent / "predictions")
+    indices = cases.input_row_index.tolist()
+    attention_pairs = [
+        extract_cases(pretrained_model, test_loader.dataset, indices, "pretrained_ft",
+                      args.pretrained_ckpt, args.attention_layer),
+        extract_cases(scratch_model, test_loader.dataset, indices, "scratch",
+                      args.scratch_ckpt, args.attention_layer),
+    ]
+    write_attention_outputs(attention_pairs, {"pretrained_ft": args.pretrained_ckpt, "scratch": args.scratch_ckpt},
+                            args.test_file, args.manifest, out_dir / "attention", args.attention_layer)
 
     manifest = {
         "pretrained_checkpoint": args.pretrained_ckpt,
@@ -523,6 +537,8 @@ def main() -> None:
         "seed": args.seed,
         "pair_sample": args.pair_sample,
         "knn_k": args.knn_k,
+        "attention_layer": args.attention_layer,
+        "attention_case_rows": indices,
         "test_records_per_model": test_df.groupby("mode").size().to_dict(),
         "train_records_per_model": train_df.groupby("mode").size().to_dict(),
         "input_sha256": {

@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from torch_geometric.nn import global_mean_pool
 from torch_geometric.nn.models import SchNet
+from .site_validation import validate_batch_centers
 
 
 class SiteSchNet(nn.Module):
@@ -21,6 +22,7 @@ class SiteSchNet(nn.Module):
         )
 
     def forward(self, batch):
+        validate_batch_centers(batch)
         z, pos, conf_batch = batch["z"], batch["pos"], batch["conf_batch"]
         h = self.backbone.embedding(z)
         edge_index, distances = self.backbone.interaction_graph(pos, conf_batch)
