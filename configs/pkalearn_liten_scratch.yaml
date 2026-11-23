@@ -20,7 +20,7 @@ conformers:
   n_conformers: 5
   random_seed: 2026
   max_embed_attempts: 1000
-  prune_rms_thresh: -1.0
+  prune_rms_thresh: 0.25
   legacy_cache_policy: regenerate
 
 liten:
